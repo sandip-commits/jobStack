@@ -16,7 +16,17 @@ app.use(express.json());
 // Routes
 app.use("/api/resumes", resumeRoutes);
 // app.use("/api/analysis", analysisRoutes);
-// app.use("/api/recommendations", recommendationRoutes);
+// app.use("/api/recomm// Add this before your other routes
+
+// Add this before your other routes
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'JobStack API is running',
+    status: 'ok',
+  });
+});
+
+
 
 app.use("/api/users", userRoutes);
 
