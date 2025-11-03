@@ -5,16 +5,43 @@ import { generateToken } from "../utils/jwt.js";
 export const createUser = async (req: Request, res: Response) => {
   try {
     const user = await userService.createUser(req.body);
-    res.status(201).json(user);
+    
+    // Generate token for auto-login
+    const token = generateToken(user.id);
+    
+    // Return in format expected by frontend
+    res.status(201).json({
+      token,
+      user: {
+        id: user.id.toString(), // Convert to string for consistency
+        email: user.email,
+        name: user.name,
+      },
+    });
   } catch (err: any) {
     console.error(err);
-    res.status(500).json({ message: "Error creating user" });
+    // Handle duplicate email error
+    if (err.code === "P2002" && err.meta?.target?.includes("email")) {
+      return res.status(409).json({ message: "Email already exists" });
+    }
+    res.status(500).json({ message: err.message || "Error creating user" });
   }
 };
 
 export const getUserById = async (req: Request, res: Response) => {
   try {
-    const user = await userService.getUserById(parseInt(req.params.id));
+    const userId = parseInt(req.params.id);
+
+    if (isNaN(userId) || !req.params.id) {
+      return res.status(400).json({ message: "Invalid user ID" });
+    }
+
+    const user = await userService.getUserById(userId);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
     res.status(200).json(user);
   } catch (err: any) {
     console.error(err);
@@ -34,10 +61,13 @@ export const getAllUsers = async (req: Request, res: Response) => {
 
 export const updateUser = async (req: Request, res: Response) => {
   try {
-    const user = await userService.updateUser(
-      parseInt(req.params.id),
-      req.body
-    );
+    const userId = parseInt(req.params.id);
+
+    if (isNaN(userId) || !req.params.id) {
+      return res.status(400).json({ message: "Invalid user ID" });
+    }
+
+    const user = await userService.updateUser(userId, req.body);
     res.status(200).json(user);
   } catch (err: any) {
     console.error(err);
@@ -47,7 +77,13 @@ export const updateUser = async (req: Request, res: Response) => {
 
 export const deleteUser = async (req: Request, res: Response) => {
   try {
-    await userService.deleteUser(parseInt(req.params.id));
+    const userId = parseInt(req.params.id);
+
+    if (isNaN(userId) || !req.params.id) {
+      return res.status(400).json({ message: "Invalid user ID" });
+    }
+
+    await userService.deleteUser(userId);
     res.status(200).json({ message: "User deleted" });
   } catch (err: any) {
     console.error(err);
@@ -65,9 +101,58 @@ export const loginUser = async (req: Request, res: Response) => {
     }
 
     const token = generateToken(user.id);
-    res.status(200).json({ token, userId: user.id, name: user.name });
+    
+    // Return in format expected by frontend
+    res.status(200).json({
+      token,
+      user: {
+        id: user.id.toString(), // Convert to string for consistency
+        email: user.email,
+        name: user.name,
+      },
+    });
   } catch (err: any) {
     console.error(err);
-    res.status(500).json({ message: "Error logging in" });
+    res.status(500).json({ message: err.message || "Error logging in" });
+  }
+};
+
+export const verifyToken = async (req: Request, res: Response) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "No token provided" });
+    }
+
+    const token = authHeader.split(" ")[1];
+    const { verifyToken: verifyJwtToken } = await import("../utils/jwt.js");
+    const decoded = verifyJwtToken(token);
+
+    // Validate decoded userId
+    if (!decoded.userId || isNaN(decoded.userId)) {
+      console.error("[verifyToken] Invalid userId in token:", decoded);
+      return res.status(401).json({ message: "Invalid token payload" });
+    }
+
+    // Get user to return user info
+    const user = await userService.getUserById(decoded.userId);
+
+    if (!user) {
+      return res.status(401).json({ message: "User not found" });
+    }
+
+    res.status(200).json({
+      userId: decoded.userId.toString(),
+      id: decoded.userId.toString(), // Support both formats
+      user: {
+        id: user.id.toString(),
+        email: user.email,
+        name: user.name,
+      },
+    });
+  } catch (err: any) {
+    console.error("[verifyToken] Error:", err);
+    res.status(401).json({ message: "Invalid or expired token" });
   }
 };

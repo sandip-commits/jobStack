@@ -21,6 +21,10 @@ export const createUser = async (data: UserInput) => {
 };
 
 export const getUserById = async (id: number) => {
+  if (!id || isNaN(id)) {
+    console.error("[userService] getUserById: Invalid ID provided:", id);
+    throw new Error("Invalid user ID");
+  }
   return await prisma.user.findUnique({ where: { id } });
 };
 
@@ -29,6 +33,10 @@ export const getAllUsers = async () => {
 };
 
 export const updateUser = async (id: number, data: Partial<UserInput>) => {
+  if (!id || isNaN(id)) {
+    console.error("[userService] updateUser: Invalid ID provided:", id);
+    throw new Error("Invalid user ID");
+  }
   // If password is being updated, hash it
   if (data.password) {
     const saltRounds = 10;
@@ -38,6 +46,10 @@ export const updateUser = async (id: number, data: Partial<UserInput>) => {
 };
 
 export const deleteUser = async (id: number) => {
+  if (!id || isNaN(id)) {
+    console.error("[userService] deleteUser: Invalid ID provided:", id);
+    throw new Error("Invalid user ID");
+  }
   return await prisma.user.delete({ where: { id } });
 };
 

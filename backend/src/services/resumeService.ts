@@ -1,50 +1,223 @@
-// ✅ Correct - Use the package name
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
 interface ResumeInput {
   userId: number;
-  title: string;
-  fullName: string;
-  email: string;
+  title?: string;
+  description?: string;
+  firstName?: string;
+  lastName?: string;
+  jobTitle?: string;
+  city?: string;
+  country?: string;
   phone?: string;
-  education?: any;
-  experience?: any;
-  skills?: any;
-  projects?: any;
-  certifications?: any;
-  other?: any;
-  content?: string;
+  email?: string;
+  photoUrl?: string;
+  colorHex?: string;
+  borderStyle?: string;
+  summary?: string;
+  skills?: string[];
+  workExperiences?: {
+    position?: string;
+    company?: string;
+    startDate?: Date | string;
+    endDate?: Date | string;
+    description?: string;
+  }[];
+  educations?: {
+    degree?: string;
+    school?: string;
+    startDate?: Date | string;
+    endDate?: Date | string;
+  }[];
 }
 
 export const createResume = async (data: ResumeInput) => {
-  return await prisma.resume.create({
-    data,
+  console.log("[backend] resumeService.createResume: Starting", {
+    userId: data.userId,
+    hasSkills: Array.isArray(data.skills),
+    skillsLength: data.skills?.length || 0,
+    skillsValue: data.skills,
+    workExperiencesCount: data.workExperiences?.length || 0,
+    educationsCount: data.educations?.length || 0,
   });
+
+  const { workExperiences, educations, ...resumeData } = data;
+  
+  // Ensure we're not passing fullName to Prisma (it doesn't exist in schema)
+  // Remove it explicitly if it somehow got through
+  delete (resumeData as any).fullName;
+
+  // Ensure skills is an array
+  if (!Array.isArray(resumeData.skills)) {
+    console.warn("[backend] resumeService.createResume: skills is not an array, defaulting to []", {
+      skillsType: typeof resumeData.skills,
+      skillsValue: resumeData.skills,
+    });
+    resumeData.skills = [];
+  }
+
+  console.log("[backend] resumeService.createResume: Prepared data for Prisma:", {
+    userId: resumeData.userId,
+    skills: resumeData.skills,
+    skillsLength: resumeData.skills.length,
+    workExperiencesCount: workExperiences?.length || 0,
+    educationsCount: educations?.length || 0,
+  });
+
+  try {
+    const result = await prisma.resume.create({
+      data: {
+        ...resumeData,
+        workExperiences: workExperiences
+          ? {
+              create: workExperiences.map((exp) => ({
+                position: exp.position,
+                company: exp.company,
+                startDate: exp.startDate ? new Date(exp.startDate) : undefined,
+                endDate: exp.endDate ? new Date(exp.endDate) : undefined,
+                description: exp.description,
+              })),
+            }
+          : undefined,
+        educations: educations
+          ? {
+              create: educations.map((edu) => ({
+                degree: edu.degree,
+                school: edu.school,
+                startDate: edu.startDate ? new Date(edu.startDate) : undefined,
+                endDate: edu.endDate ? new Date(edu.endDate) : undefined,
+              })),
+            }
+          : undefined,
+      },
+      include: {
+        workExperiences: true,
+        educations: true,
+      },
+    });
+
+    console.log("[backend] resumeService.createResume: Success!", {
+      id: result.id,
+      userId: result.userId,
+    });
+
+    return result;
+  } catch (error: any) {
+    console.error("[backend] resumeService.createResume: Prisma error:", {
+      message: error?.message,
+      code: error?.code,
+      meta: error?.meta,
+      name: error?.name,
+      stack: error?.stack,
+      // Log Prisma-specific error details
+      cause: error?.cause,
+      clientVersion: error?.clientVersion,
+    });
+    
+    // Provide more detailed error message
+    let detailedMessage = error?.message || "Database error";
+    if (error?.code) {
+      detailedMessage = `[${error.code}] ${detailedMessage}`;
+    }
+    if (error?.meta) {
+      detailedMessage += ` - ${JSON.stringify(error.meta)}`;
+    }
+    
+    const enhancedError = new Error(detailedMessage);
+    (enhancedError as any).code = error?.code;
+    (enhancedError as any).meta = error?.meta;
+    (enhancedError as any).originalError = error;
+    throw enhancedError;
+  }
 };
 
 export const getResumesByUser = async (userId: number) => {
   return await prisma.resume.findMany({
     where: { userId },
+    include: {
+      workExperiences: true,
+      educations: true,
+    },
     orderBy: { createdAt: "desc" },
   });
 };
 
-export const getResumeById = async (id: number) => {
-  return await prisma.resume.findUnique({
-    where: { id },
+export const getResumeById = async (id: string, userId?: number) => {
+  return await prisma.resume.findFirst({
+    where: {
+      id,
+      ...(userId && { userId }),
+    },
+    include: {
+      workExperiences: true,
+      educations: true,
+    },
   });
 };
 
-export const updateResume = async (id: number, data: Partial<ResumeInput>) => {
+export const updateResume = async (
+  id: string,
+  userId: number,
+  data: Partial<ResumeInput>,
+) => {
+  const { workExperiences, educations, ...resumeData } = data;
+
+  // First verify the resume belongs to the user
+  const existingResume = await prisma.resume.findFirst({
+    where: { id, userId },
+  });
+
+  if (!existingResume) {
+    throw new Error("Resume not found or access denied");
+  }
+
   return await prisma.resume.update({
     where: { id },
-    data,
+    data: {
+      ...resumeData,
+      workExperiences: workExperiences
+        ? {
+            deleteMany: {}, // Delete existing work experiences
+            create: workExperiences.map((exp) => ({
+              position: exp.position,
+              company: exp.company,
+              startDate: exp.startDate ? new Date(exp.startDate) : undefined,
+              endDate: exp.endDate ? new Date(exp.endDate) : undefined,
+              description: exp.description,
+            })),
+          }
+        : undefined,
+      educations: educations
+        ? {
+            deleteMany: {}, // Delete existing educations
+            create: educations.map((edu) => ({
+              degree: edu.degree,
+              school: edu.school,
+              startDate: edu.startDate ? new Date(edu.startDate) : undefined,
+              endDate: edu.endDate ? new Date(edu.endDate) : undefined,
+            })),
+          }
+        : undefined,
+    },
+    include: {
+      workExperiences: true,
+      educations: true,
+    },
   });
 };
 
-export const deleteResume = async (id: number) => {
+export const deleteResume = async (id: string, userId: number) => {
+  // First verify the resume belongs to the user
+  const existingResume = await prisma.resume.findFirst({
+    where: { id, userId },
+  });
+
+  if (!existingResume) {
+    throw new Error("Resume not found or access denied");
+  }
+
   return await prisma.resume.delete({
     where: { id },
   });
